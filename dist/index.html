@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Task App</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f0f0; }
+    #root { height: 100%; }
+    input, textarea, button, select { font-family: inherit; }
+    ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useReducer, useCallback, useMemo, createContext, useContext, useRef, useEffect } = React;
+
+/* ── COLORS (Slack-inspired light theme) ─────────────────────── */
+const C = {
+  bgPrimary: '#FFFFFF',
+  bgSecondary: '#F8F8F8',
+  bgTertiary: '#F1F1F1',
+  bgBrand: '#4A154B',
+  surfaceSelected: '#F4F0FB',
+  textPrimary: '#1A1A1A',
+  textSecondary: '#717171',
+  textTertiary: '#9E9E9E',
+  textInverse: '#FFFFFF',
+  textBrand: '#4A154B',
+  textSuccess: '#007A5A',
+  textDanger: '#E01E5A',
+  borderDefault: '#E8E8E8',
+  borderSubtle: '#F1F1F1',
+  borderBrand: '#4A154B',
+  interactivePrimary: '#4A154B',
+  interactiveDanger: '#E01E5A',
+  statusOnline: '#2BAC76',
+  statusDnd: '#E01E5A',
+  statusAway: '#F4C430',
+};
+
+/* ── DATA TYPES & INITIAL STATE ─────────────────────────────── */
+const SAMPLE_EPICS = [
+  { id: 'e1', title: 'Launch Mobile App v2.0', description: 'Complete redesign and new feature rollout for the mobile app.', status: 'in_progress', dueDate: '2026-03-31',
+    subTasks: [
+      { id: 's1', title: 'Design new onboarding flow', status: 'completed' },
+      { id: 's2', title: 'Implement dark mode', status: 'in_progress' },
+      { id: 's3', title: 'Performance optimizations', status: 'not_started' },
+      { id: 's4', title: 'Beta testing with 50 users', status: 'not_started' },
+    ],
+    collaborators: [{ id: 'c1', contact: 'alex@company.com', name: 'Alex' }, { id: 'c2', contact: '+1 555-0100', name: 'Jordan' }],
+    createdAt: '2026-02-01' },
+  { id: 'e2', title: 'Q1 Marketing Campaign', description: 'Plan and execute the Q1 marketing push across all channels.', status: 'not_started', dueDate: '2026-03-15',
+    subTasks: [
+      { id: 's5', title: 'Define target audience', status: 'not_started' },
+      { id: 's6', title: 'Create ad creatives', status: 'not_started' },
+      { id: 's7', title: 'Set up analytics tracking', status: 'not_started' },
+    ],
+    collaborators: [], createdAt: '2026-02-10' },
+  { id: 'e3', title: 'Design System Audit', description: 'Review and update all component documentation.', status: 'completed', dueDate: '2026-02-15',
+    subTasks: [
+      { id: 's8', title: 'Audit existing components', status: 'completed' },
+      { id: 's9', title: 'Write usage guidelines', status: 'completed' },
+    ],
+    collaborators: [], createdAt: '2026-01-20' },
+];
+
+const SAMPLE_QUICK_HITS = [
+  { id: 'q1', title: 'Review open pull requests', dueDate: '2026-02-26', completed: false, collaborators: [], createdAt: '2026-02-25' },
+  { id: 'q2', title: 'Update team standup notes', dueDate: '2026-02-25', completed: true, collaborators: [], createdAt: '2026-02-25' },
+  { id: 'q3', title: 'Schedule 1:1 with design team', dueDate: '2026-02-28', completed: false, collaborators: [{ id: 'c3', contact: 'design@company.com' }], createdAt: '2026-02-24' },
+  { id: 'q4', title: 'Prep for board meeting slides', dueDate: '2026-03-01', completed: false, collaborators: [], createdAt: '2026-02-24' },
+];
+
+function genId() { return Math.random().toString(36).slice(2, 11); }
+
+/* ── TASK CONTEXT ────────────────────────────────────────────── */
+const TaskCtx = createContext(null);
+function TaskProvider({ children }) {
+  const [epics, setEpics] = useState(SAMPLE_EPICS);
+  const [quickHits, setQuickHits] = useState(SAMPLE_QUICK_HITS);
+
+  const addEpic = useCallback((data) => {
+    const id = genId();
+    const epic = { ...data, id, createdAt: new Date().toISOString().split('T')[0] };
+    setEpics(p => [epic, ...p]);
+    return id;
+  }, []);
+  const updateEpic = useCallback((id, updates) =>
+    setEpics(p => p.map(e => e.id === id ? { ...e, ...updates } : e)), []);
+  const deleteEpic = useCallback((id) =>
+    setEpics(p => p.filter(e => e.id !== id)), []);
+  const addSubTask = useCallback((epicId, title) =>
+    setEpics(p => p.map(e => e.id === epicId
+      ? { ...e, subTasks: [...e.subTasks, { id: genId(), title, status: 'not_started' }] }
+      : e)), []);
+  const updateSubTask = useCallback((epicId, subId, updates) =>
+    setEpics(p => p.map(e => e.id === epicId
+      ? { ...e, subTasks: e.subTasks.map(s => s.id === subId ? { ...s, ...updates } : s) }
+      : e)), []);
+  const deleteSubTask = useCallback((epicId, subId) =>
+    setEpics(p => p.map(e => e.id === epicId
+      ? { ...e, subTasks: e.subTasks.filter(s => s.id !== subId) }
+      : e)), []);
+  const addQuickHit = useCallback((data) =>
+    setQuickHits(p => [{ ...data, id: genId(), createdAt: new Date().toISOString().split('T')[0] }, ...p]), []);
+  const updateQuickHit = useCallback((id, updates) =>
+    setQuickHits(p => p.map(q => q.id === id ? { ...q, ...updates } : q)), []);
+  const deleteQuickHit = useCallback((id) =>
+    setQuickHits(p => p.filter(q => q.id !== id)), []);
+  const addCollaboratorToEpic = useCallback((epicId, collab) =>
+    setEpics(p => p.map(e => e.id === epicId
+      ? { ...e, collaborators: [...e.collaborators, { ...collab, id: genId() }] }
+      : e)), []);
+
+  return (
+    <TaskCtx.Provider value={{ epics, quickHits, addEpic, updateEpic, deleteEpic, addSubTask, updateSubTask, deleteSubTask, addQuickHit, updateQuickHit, deleteQuickHit, addCollaboratorToEpic }}>
+      {children}
+    </TaskCtx.Provider>
+  );
+}
+const useTasks = () => useContext(TaskCtx);
+
+/* ── NAVIGATION CONTEXT ──────────────────────────────────────── */
+const NavCtx = createContext(null);
+function NavProvider({ children }) {
+  const [state, setState] = useState({ screen: 'Home', params: {} });
+  const navigate = useCallback((screen, params = {}) => setState({ screen, params }), []);
+  const goBack = useCallback(() => setState({ screen: 'Home', params: {} }), []);
+  return <NavCtx.Provider value={{ state, navigate, goBack }}>{children}</NavCtx.Provider>;
+}
+const useNav = () => useContext(NavCtx);
+
+/* ── SHARED HELPERS ──────────────────────────────────────────── */
+const STATUS_CONFIG = {
+  not_started: { label: 'Not Started', bg: C.bgTertiary, color: C.textSecondary, dot: C.textTertiary },
+  in_progress:  { label: 'In Progress',  bg: '#EFF6FF',    color: '#1264A3',       dot: '#1264A3' },
+  completed:    { label: 'Completed',    bg: '#F0FDF4',    color: C.textSuccess,   dot: C.statusOnline },
+};
+
+function StatusBadge({ status }) {
+  const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.not_started;
+  return (
+    <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'3px 8px', borderRadius:9999, background:cfg.bg, fontSize:12, fontWeight:600, color:cfg.color, whiteSpace:'nowrap' }}>
+      <span style={{ width:6, height:6, borderRadius:'50%', background:cfg.dot, flexShrink:0 }} />
+      {cfg.label}
+    </span>
+  );
+}
+
+function ProgressBar({ progress, showLabel = true }) {
+  const pct = Math.round(Math.min(Math.max(progress, 0), 1) * 100);
+  const done = pct === 100;
+  return (
+    <div>
+      {showLabel && (
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+          <span style={{ fontSize:12, color:C.textSecondary }}>Progress</span>
+          <span style={{ fontSize:12, fontWeight:600, color: done ? C.textSuccess : C.textBrand }}>{pct}%</span>
+        </div>
+      )}
+      <div style={{ height:6, borderRadius:3, background:C.bgTertiary, overflow:'hidden' }}>
+        <div style={{ height:'100%', width:`${pct}%`, borderRadius:3, background: done ? C.statusOnline : C.interactivePrimary, transition:'width .3s ease' }} />
+      </div>
+    </div>
+  );
+}
+
+function Avatar({ name, size = 28 }) {
+  const initials = (name || '?').split(' ').map(p => p[0]).join('').slice(0,2).toUpperCase();
+  const colors = ['#4A154B','#1264A3','#007A5A','#D97706','#E01E5A'];
+  const bg = colors[(name || '?').charCodeAt(0) % colors.length];
+  return (
+    <div style={{ width:size, height:size, borderRadius:'50%', background:bg, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*0.38, fontWeight:700, flexShrink:0 }}>
+      {initials}
+    </div>
+  );
+}
+
+function formatDate(iso) {
+  if (!iso) return null;
+  return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+}
+
+function isPastDue(iso, status) {
+  if (!iso || status === 'completed') return false;
+  return new Date(iso + 'T00:00:00') < new Date();
+}
+
+/* ── HEADER ──────────────────────────────────────────────────── */
+function Header({ title, subtitle, leftAction, rightActions }) {
+  return (
+    <div style={{ background:C.bgBrand, padding:'12px 16px 12px', display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
+      {leftAction && (
+        <button onClick={leftAction.onPress} style={{ background:'none', border:'none', color:'rgba(255,255,255,0.8)', fontSize:14, cursor:'pointer', padding:'4px 0', marginRight:4, whiteSpace:'nowrap' }}>
+          {leftAction.label}
+        </button>
+      )}
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:17, fontWeight:700, color:'#fff', lineHeight:1.2 }}>{title}</div>
+        {subtitle && <div style={{ fontSize:12, color:'rgba(255,255,255,0.7)', marginTop:2 }}>{subtitle}</div>}
+      </div>
+      {rightActions && rightActions.map((a, i) => (
+        <button key={i} onClick={a.onPress} style={{ background:'rgba(255,255,255,0.15)', border:'none', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer', padding:'6px 12px', borderRadius:6 }}>
+          {a.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ── EPIC CARD ───────────────────────────────────────────────── */
+function EpicCard({ epic, onPress }) {
+  const completed = epic.subTasks.filter(s => s.status === 'completed').length;
+  const total = epic.subTasks.length;
+  const progress = total > 0 ? completed / total : 0;
+  const pastDue = isPastDue(epic.dueDate, epic.status);
+
+  return (
+    <div onClick={onPress} style={{ background:'#fff', border:`1px solid ${C.borderDefault}`, borderRadius:10, padding:16, marginBottom:12, cursor:'pointer', boxShadow:'0 1px 3px rgba(0,0,0,0.06)', transition:'box-shadow .15s' }}
+      onMouseEnter={e => e.currentTarget.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'}
+      onMouseLeave={e => e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,0.06)'}>
+      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8, marginBottom:8 }}>
+        <div style={{ fontSize:15, fontWeight:600, color:C.textPrimary, flex:1, lineHeight:1.3 }}>{epic.title}</div>
+        <StatusBadge status={epic.status} />
+      </div>
+      {epic.description && (
+        <div style={{ fontSize:13, color:C.textSecondary, marginBottom:10, lineHeight:1.5, display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>
+          {epic.description}
+        </div>
+      )}
+      {total > 0 && (
+        <div style={{ marginBottom:10 }}>
+          <ProgressBar progress={progress} />
+          <div style={{ fontSize:12, color:C.textTertiary, marginTop:4 }}>{completed}/{total} sub-tasks done</div>
+        </div>
+      )}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        {epic.dueDate ? (
+          <span style={{ fontSize:12, color: pastDue ? C.textDanger : C.textSecondary, fontWeight: pastDue ? 600 : 400 }}>
+            {pastDue ? '⚠ Overdue · ' : '📅 '}{formatDate(epic.dueDate)}
+          </span>
+        ) : <span />}
+        {epic.collaborators.length > 0 && (
+          <div style={{ display:'flex', gap:-4 }}>
+            {epic.collaborators.slice(0,3).map(c => <Avatar key={c.id} name={c.name || c.contact} size={22} />)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── QUICK HIT CARD ──────────────────────────────────────────── */
+function QuickHitCard({ qh, onToggle }) {
+  const pastDue = isPastDue(qh.dueDate, qh.completed ? 'completed' : 'pending');
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background:'#fff', border:`1px solid ${C.borderDefault}`, borderRadius:10, marginBottom:8 }}>
+      <button onClick={onToggle} style={{ width:22, height:22, borderRadius:'50%', border:`2px solid ${qh.completed ? C.statusOnline : C.borderDefault}`, background: qh.completed ? C.statusOnline : 'transparent', cursor:'pointer', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', padding:0 }}>
+        {qh.completed && <span style={{ color:'#fff', fontSize:11, fontWeight:700 }}>✓</span>}
+      </button>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:14, fontWeight:500, color: qh.completed ? C.textTertiary : C.textPrimary, textDecoration: qh.completed ? 'line-through' : 'none', lineHeight:1.3 }}>
+          {qh.title}
+        </div>
+        {qh.dueDate && (
+          <div style={{ fontSize:12, color: pastDue && !qh.completed ? C.textDanger : C.textTertiary, marginTop:2 }}>
+            {pastDue && !qh.completed ? '⚠ Overdue · ' : ''}{formatDate(qh.dueDate)}
+          </div>
+        )}
+      </div>
+      {qh.collaborators.length > 0 && <Avatar name={qh.collaborators[0].contact} size={22} />}
+    </div>
+  );
+}
+
+/* ── SECTION HEADER ──────────────────────────────────────────── */
+function SectionHeader({ label }) {
+  return <div style={{ fontSize:11, fontWeight:700, color:C.textTertiary, textTransform:'uppercase', letterSpacing:0.8, padding:'16px 0 8px' }}>{label}</div>;
+}
+
+/* ── EMPTY STATE ─────────────────────────────────────────────── */
+function EmptyState({ title, hint, actionLabel, onAction }) {
+  return (
+    <div style={{ textAlign:'center', padding:'48px 24px' }}>
+      <div style={{ fontSize:40, marginBottom:12 }}>📋</div>
+      <div style={{ fontSize:16, fontWeight:600, color:C.textPrimary, marginBottom:8 }}>{title}</div>
+      <div style={{ fontSize:14, color:C.textSecondary, marginBottom:20, lineHeight:1.6 }}>{hint}</div>
+      {onAction && <button onClick={onAction} style={{ background:C.interactivePrimary, color:'#fff', border:'none', borderRadius:8, padding:'10px 20px', fontSize:14, fontWeight:600, cursor:'pointer' }}>{actionLabel}</button>}
+    </div>
+  );
+}
+
+/* ── FORM FIELD ──────────────────────────────────────────────── */
+function FormField({ label, value, onChange, placeholder, multiline, required, error, type }) {
+  const style = { width:'100%', padding:'10px 12px', fontSize:15, border:`1.5px solid ${error ? C.textDanger : C.borderDefault}`, borderRadius:8, background:'#fff', color:C.textPrimary, outline:'none', resize:'vertical' };
+  return (
+    <div style={{ marginBottom:16 }}>
+      <label style={{ display:'block', fontSize:13, fontWeight:600, color:C.textSecondary, marginBottom:6 }}>
+        {label}{required && <span style={{ color:C.textDanger, marginLeft:2 }}>*</span>}
+      </label>
+      {multiline
+        ? <textarea rows={4} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={style} />
+        : <input type={type || 'text'} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={style} />}
+      {error && <div style={{ fontSize:12, color:C.textDanger, marginTop:4 }}>{error}</div>}
+    </div>
+  );
+}
+
+/* ── HOME SCREEN ─────────────────────────────────────────────── */
+function HomeScreen() {
+  const { epics, quickHits, updateQuickHit } = useTasks();
+  const { navigate } = useNav();
+  const [tab, setTab] = useState('epics');
+
+  const activeEpics = epics.filter(e => e.status !== 'completed');
+  const completedEpics = epics.filter(e => e.status === 'completed');
+  const pendingHits = quickHits.filter(q => !q.completed);
+  const completedHits = quickHits.filter(q => q.completed);
+
+  const subtitle = tab === 'epics'
+    ? `${activeEpics.length} active epic${activeEpics.length !== 1 ? 's' : ''}`
+    : `${pendingHits.length} pending`;
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', height:'100%', background:C.bgPrimary }}>
+      <Header title="My Tasks" subtitle={subtitle} rightActions={[{ label:'+ Add', onPress:() => navigate(tab === 'epics' ? 'CreateEpic' : 'CreateQuickHit') }]} />
+
+      {/* Tab bar */}
+      <div style={{ display:'flex', background:C.bgSecondary, borderBottom:`1px solid ${C.borderSubtle}`, flexShrink:0 }}>
+        {[['epics','Epics'],['quickhits','Quick Hits']].map(([key,label]) => (
+          <button key={key} onClick={() => setTab(key)}
+            style={{ flex:1, padding:'12px 0', background:'none', border:'none', borderBottom: tab === key ? `2px solid ${C.interactivePrimary}` : '2px solid transparent', color: tab === key ? C.textBrand : C.textSecondary, fontSize:14, fontWeight: tab === key ? 600 : 400, cursor:'pointer', transition:'all .15s' }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Scrollable content */}
+      <div style={{ flex:1, overflowY:'auto', padding:'0 16px 24px' }}>
+        {tab === 'epics' ? (
+          epics.length === 0 ? (
+            <EmptyState title="No epics yet" hint="Epics are large projects with sub-tasks, due dates, and progress tracking." actionLabel="Create Epic" onAction={() => navigate('CreateEpic')} />
+          ) : (
+            <>
+              {activeEpics.length > 0 && (
+                <>
+                  <SectionHeader label={`Active · ${activeEpics.length}`} />
+                  {activeEpics.map(e => <EpicCard key={e.id} epic={e} onPress={() => navigate('EpicDetail', { epicId: e.id })} />)}
+                </>
+              )}
+              {completedEpics.length > 0 && (
+                <>
+                  <SectionHeader label={`Completed · ${completedEpics.length}`} />
+                  {completedEpics.map(e => <EpicCard key={e.id} epic={e} onPress={() => navigate('EpicDetail', { epicId: e.id })} />)}
+                </>
+              )}
+            </>
+          )
+        ) : (
+          quickHits.length === 0 ? (
+            <EmptyState title="No quick hits yet" hint="Quick hits are fast, single-action tasks you want to knock out quickly." actionLabel="Add Quick Hit" onAction={() => navigate('CreateQuickHit')} />
+          ) : (
+            <>
+              {pendingHits.length > 0 && (
+                <>
+                  <SectionHeader label={`Pending · ${pendingHits.length}`} />
+                  {pendingHits.map(q => <QuickHitCard key={q.id} qh={q} onToggle={() => updateQuickHit(q.id, { completed: true })} />)}
+                </>
+              )}
+              {completedHits.length > 0 && (
+                <>
+                  <SectionHeader label={`Done · ${completedHits.length}`} />
+                  {completedHits.map(q => <QuickHitCard key={q.id} qh={q} onToggle={() => updateQuickHit(q.id, { completed: false })} />)}
+                </>
+              )}
+            </>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── EPIC DETAIL SCREEN ──────────────────────────────────────── */
+function EpicDetailScreen({ epicId }) {
+  const { epics, updateEpic, deleteEpic, addSubTask, updateSubTask, deleteSubTask, addCollaboratorToEpic } = useTasks();
+  const { goBack } = useNav();
+  const [newSubTask, setNewSubTask] = useState('');
+  const [showStatusMenu, setShowStatusMenu] = useState(false);
+  const [collabContact, setCollabContact] = useState('');
+  const [showCollabInput, setShowCollabInput] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const epic = epics.find(e => e.id === epicId);
+  if (!epic) return null;
+
+  const completed = epic.subTasks.filter(s => s.status === 'completed').length;
+  const total = epic.subTasks.length;
+  const progress = total > 0 ? completed / total : 0;
+  const pastDue = isPastDue(epic.dueDate, epic.status);
+
+  const STATUS_CYCLE = ['not_started','in_progress','completed'];
+  const cycleStatus = (current) => STATUS_CYCLE[(STATUS_CYCLE.indexOf(current) + 1) % 3];
+
+  const handleAddSubTask = () => {
+    if (!newSubTask.trim()) return;
+    addSubTask(epicId, newSubTask.trim());
+    setNewSubTask('');
+  };
+
+  const handleAddCollab = () => {
+    if (!collabContact.trim()) return;
+    addCollaboratorToEpic(epicId, { contact: collabContact.trim() });
+    setCollabContact('');
+    setShowCollabInput(false);
+  };
+
+  const handleDelete = () => {
+    if (!confirmDelete) { setConfirmDelete(true); return; }
+    deleteEpic(epicId);
+    goBack();
+  };
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', height:'100%', background:C.bgPrimary }}>
+      <Header title={epic.title} leftAction={{ label:'← Back', onPress:goBack }} />
+
+      <div style={{ flex:1, overflowY:'auto', padding:'0 16px 32px' }}>
+        {/* Status + Due Date row */}
+        <div style={{ display:'flex', alignItems:'center', gap:12, padding:'16px 0', borderBottom:`1px solid ${C.borderSubtle}` }}>
+          <div style={{ position:'relative' }}>
+            <div onClick={() => setShowStatusMenu(!showStatusMenu)} style={{ cursor:'pointer' }}>
+              <StatusBadge status={epic.status} />
+            </div>
+            {showStatusMenu && (
+              <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, background:'#fff', border:`1px solid ${C.borderDefault}`, borderRadius:8, boxShadow:'0 4px 12px rgba(0,0,0,0.12)', zIndex:100, minWidth:140, overflow:'hidden' }}>
+                {['not_started','in_progress','completed'].map(s => (
+                  <div key={s} onClick={() => { updateEpic(epicId, { status:s }); setShowStatusMenu(false); }}
+                    style={{ padding:'10px 14px', cursor:'pointer', fontSize:13, color: s === epic.status ? C.textBrand : C.textPrimary, background: s === epic.status ? C.surfaceSelected : 'transparent', fontWeight: s === epic.status ? 600 : 400 }}>
+                    {STATUS_CONFIG[s].label}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {epic.dueDate && (
+            <span style={{ fontSize:13, color: pastDue ? C.textDanger : C.textSecondary, fontWeight: pastDue ? 600 : 400 }}>
+              {pastDue ? '⚠ Overdue · ' : '📅 '}{formatDate(epic.dueDate)}
+            </span>
+          )}
+        </div>
+
+        {/* Description */}
+        {epic.description && (
+          <div style={{ padding:'14px 0', borderBottom:`1px solid ${C.borderSubtle}`, fontSize:14, color:C.textSecondary, lineHeight:1.6 }}>
+            {epic.description}
+          </div>
+        )}
+
+        {/* Progress */}
+        {total > 0 && (
+          <div style={{ padding:'16px 0', borderBottom:`1px solid ${C.borderSubtle}` }}>
+            <ProgressBar progress={progress} />
+            <div style={{ fontSize:12, color:C.textTertiary, marginTop:6 }}>{completed} of {total} sub-tasks completed</div>
+          </div>
+        )}
+
+        {/* Sub-tasks */}
+        <div style={{ padding:'16px 0', borderBottom:`1px solid ${C.borderSubtle}` }}>
+          <div style={{ fontSize:13, fontWeight:700, color:C.textSecondary, textTransform:'uppercase', letterSpacing:0.8, marginBottom:12 }}>
+            Sub-tasks · {total}
+          </div>
+          {epic.subTasks.map(s => (
+            <div key={s.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderBottom:`1px solid ${C.borderSubtle}` }}>
+              <button onClick={() => updateSubTask(epicId, s.id, { status: cycleStatus(s.status) })}
+                style={{ width:20, height:20, borderRadius:'50%', border:`2px solid ${s.status === 'completed' ? C.statusOnline : s.status === 'in_progress' ? '#1264A3' : C.borderDefault}`,
+                  background: s.status === 'completed' ? C.statusOnline : s.status === 'in_progress' ? '#EFF6FF' : 'transparent', cursor:'pointer', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', padding:0 }}>
+                {s.status === 'completed' && <span style={{ color:'#fff', fontSize:10 }}>✓</span>}
+                {s.status === 'in_progress' && <span style={{ width:8, height:8, borderRadius:'50%', background:'#1264A3', display:'block' }} />}
+              </button>
+              <span style={{ flex:1, fontSize:14, color: s.status === 'completed' ? C.textTertiary : C.textPrimary, textDecoration: s.status === 'completed' ? 'line-through' : 'none' }}>{s.title}</span>
+              <button onClick={() => deleteSubTask(epicId, s.id)}
+                style={{ background:'none', border:'none', color:C.textTertiary, cursor:'pointer', fontSize:16, padding:'0 2px', lineHeight:1 }}>×</button>
+            </div>
+          ))}
+          {/* Add sub-task */}
+          <div style={{ display:'flex', gap:8, marginTop:12 }}>
+            <input value={newSubTask} onChange={e => setNewSubTask(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAddSubTask()}
+              placeholder="Add a sub-task…"
+              style={{ flex:1, padding:'8px 10px', border:`1.5px solid ${C.borderDefault}`, borderRadius:6, fontSize:14, outline:'none', color:C.textPrimary }} />
+            <button onClick={handleAddSubTask}
+              style={{ background:C.interactivePrimary, color:'#fff', border:'none', borderRadius:6, padding:'8px 14px', fontSize:14, fontWeight:600, cursor:'pointer' }}>Add</button>
+          </div>
+        </div>
+
+        {/* Collaborators */}
+        <div style={{ padding:'16px 0', borderBottom:`1px solid ${C.borderSubtle}` }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:C.textSecondary, textTransform:'uppercase', letterSpacing:0.8 }}>Collaborators</div>
+            <button onClick={() => setShowCollabInput(!showCollabInput)}
+              style={{ background:'none', border:'none', color:C.textBrand, fontSize:13, fontWeight:600, cursor:'pointer' }}>+ Add</button>
+          </div>
+          {epic.collaborators.map(c => (
+            <div key={c.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 0' }}>
+              <Avatar name={c.name || c.contact} size={28} />
+              <div>
+                {c.name && <div style={{ fontSize:14, fontWeight:500, color:C.textPrimary }}>{c.name}</div>}
+                <div style={{ fontSize:12, color:C.textSecondary }}>{c.contact}</div>
+              </div>
+              <button onClick={() => updateEpic(epicId, { collaborators: epic.collaborators.filter(x => x.id !== c.id) })}
+                style={{ marginLeft:'auto', background:'none', border:'none', color:C.textTertiary, cursor:'pointer', fontSize:16 }}>×</button>
+            </div>
+          ))}
+          {showCollabInput && (
+            <div style={{ display:'flex', gap:8, marginTop:8 }}>
+              <input value={collabContact} onChange={e => setCollabContact(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAddCollab()}
+                placeholder="Email or phone"
+                style={{ flex:1, padding:'8px 10px', border:`1.5px solid ${C.borderDefault}`, borderRadius:6, fontSize:14, outline:'none' }} />
+              <button onClick={handleAddCollab}
+                style={{ background:C.interactivePrimary, color:'#fff', border:'none', borderRadius:6, padding:'8px 14px', fontSize:14, fontWeight:600, cursor:'pointer' }}>Add</button>
+            </div>
+          )}
+        </div>
+
+        {/* Danger zone */}
+        <div style={{ padding:'20px 0' }}>
+          <button onClick={handleDelete}
+            style={{ background: confirmDelete ? C.interactiveDanger : 'transparent', color: confirmDelete ? '#fff' : C.textDanger, border:`1.5px solid ${C.textDanger}`, borderRadius:8, padding:'10px 20px', fontSize:14, fontWeight:600, cursor:'pointer', width:'100%' }}>
+            {confirmDelete ? 'Tap again to confirm delete' : 'Delete Epic'}
+          </button>
+          {confirmDelete && (
+            <button onClick={() => setConfirmDelete(false)} style={{ background:'none', border:'none', color:C.textSecondary, fontSize:13, cursor:'pointer', marginTop:8, display:'block', width:'100%', textAlign:'center' }}>Cancel</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── CREATE EPIC SCREEN ──────────────────────────────────────── */
+function CreateEpicScreen() {
+  const { addEpic } = useTasks();
+  const { goBack, navigate } = useNav();
+  const [title, setTitle] = useState('');
+  const [desc, setDesc] = useState('');
+  const [status, setStatus] = useState('not_started');
+  const [dueDate, setDueDate] = useState('');
+  const [titleError, setTitleError] = useState('');
+
+  const today = new Date().toISOString().split('T')[0];
+
+  const handleCreate = () => {
+    if (!title.trim()) { setTitleError('Title is required'); return; }
+    const id = addEpic({ title: title.trim(), description: desc.trim() || undefined, status, dueDate: dueDate || undefined, subTasks: [], collaborators: [] });
+    navigate('EpicDetail', { epicId: id });
+  };
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', height:'100%', background:C.bgPrimary }}>
+      <Header title="New Epic" leftAction={{ label:'← Cancel', onPress:goBack }} />
+      <div style={{ flex:1, overflowY:'auto', padding:'16px' }}>
+        <FormField label="Title" value={title} onChange={v => { setTitle(v); setTitleError(''); }} placeholder="e.g. Launch Mobile App v2.0" required error={titleError} />
+        <FormField label="Description" value={desc} onChange={setDesc} placeholder="Describe this epic (optional)" multiline />
+        <div style={{ height:1, background:C.borderSubtle, margin:'8px 0 20px' }} />
+
+        <label style={{ display:'block', fontSize:13, fontWeight:600, color:C.textSecondary, marginBottom:8 }}>Status</label>
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:20 }}>
+          {['not_started','in_progress','completed'].map(s => (
+            <button key={s} onClick={() => setStatus(s)}
+              style={{ padding:'7px 14px', borderRadius:20, border:`1.5px solid ${status === s ? C.interactivePrimary : C.borderDefault}`, background: status === s ? C.interactivePrimary : 'transparent', color: status === s ? '#fff' : C.textPrimary, fontSize:13, fontWeight:500, cursor:'pointer' }}>
+              {STATUS_CONFIG[s].label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ height:1, background:C.borderSubtle, margin:'0 0 20px' }} />
+        <label style={{ display:'block', fontSize:13, fontWeight:600, color:C.textSecondary, marginBottom:8 }}>Due Date</label>
+        <input type="date" value={dueDate} min={today} onChange={e => setDueDate(e.target.value)}
+          style={{ width:'100%', padding:'10px 12px', fontSize:15, border:`1.5px solid ${C.borderDefault}`, borderRadius:8, color: dueDate ? C.textPrimary : C.textTertiary, outline:'none', marginBottom:8 }} />
+        {dueDate && <button onClick={() => setDueDate('')} style={{ background:'none', border:'none', color:C.textSecondary, fontSize:13, cursor:'pointer', padding:'0 0 8px' }}>Clear due date</button>}
+
+        <div style={{ marginTop:24 }}>
+          <button onClick={handleCreate} style={{ width:'100%', background:C.interactivePrimary, color:'#fff', border:'none', borderRadius:8, padding:'14px', fontSize:16, fontWeight:600, cursor:'pointer' }}>
+            Create Epic
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── CREATE QUICK HIT SCREEN ─────────────────────────────────── */
+function CreateQuickHitScreen() {
+  const { addQuickHit } = useTasks();
+  const { goBack } = useNav();
+  const [title, setTitle] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [collabContact, setCollabContact] = useState('');
+  const [collaborators, setCollaborators] = useState([]);
+  const [titleError, setTitleError] = useState('');
+
+  const today = new Date().toISOString().split('T')[0];
+
+  const handleAddCollab = () => {
+    if (!collabContact.trim()) return;
+    setCollaborators(p => [...p, { id: genId(), contact: collabContact.trim() }]);
+    setCollabContact('');
+  };
+
+  const handleCreate = () => {
+    if (!title.trim()) { setTitleError('Title is required'); return; }
+    addQuickHit({ title: title.trim(), dueDate: dueDate || undefined, completed: false, collaborators });
+    goBack();
+  };
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', height:'100%', background:C.bgPrimary }}>
+      <Header title="New Quick Hit" leftAction={{ label:'← Cancel', onPress:goBack }} />
+      <div style={{ flex:1, overflowY:'auto', padding:'16px' }}>
+        <FormField label="Task" value={title} onChange={v => { setTitle(v); setTitleError(''); }} placeholder="What needs to get done?" required error={titleError} />
+        <div style={{ height:1, background:C.borderSubtle, margin:'8px 0 20px' }} />
+
+        <label style={{ display:'block', fontSize:13, fontWeight:600, color:C.textSecondary, marginBottom:8 }}>Due Date</label>
+        <input type="date" value={dueDate} min={today} onChange={e => setDueDate(e.target.value)}
+          style={{ width:'100%', padding:'10px 12px', fontSize:15, border:`1.5px solid ${C.borderDefault}`, borderRadius:8, color: dueDate ? C.textPrimary : C.textTertiary, outline:'none', marginBottom: dueDate ? 4 : 20 }} />
+        {dueDate && <button onClick={() => setDueDate('')} style={{ background:'none', border:'none', color:C.textSecondary, fontSize:13, cursor:'pointer', padding:'0 0 16px' }}>Clear</button>}
+
+        <div style={{ height:1, background:C.borderSubtle, margin:'0 0 20px' }} />
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+          <label style={{ fontSize:13, fontWeight:600, color:C.textSecondary }}>Collaborators</label>
+          {collaborators.length > 0 && <span style={{ fontSize:12, color:C.textTertiary }}>{collaborators.length} added</span>}
+        </div>
+        {collaborators.map(c => (
+          <div key={c.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 0' }}>
+            <Avatar name={c.contact} size={24} />
+            <span style={{ flex:1, fontSize:14, color:C.textPrimary }}>{c.contact}</span>
+            <button onClick={() => setCollaborators(p => p.filter(x => x.id !== c.id))} style={{ background:'none', border:'none', color:C.textTertiary, cursor:'pointer', fontSize:16 }}>×</button>
+          </div>
+        ))}
+        <div style={{ display:'flex', gap:8, marginTop:4 }}>
+          <input value={collabContact} onChange={e => setCollabContact(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleAddCollab()}
+            placeholder="Email or phone"
+            style={{ flex:1, padding:'8px 10px', border:`1.5px solid ${C.borderDefault}`, borderRadius:6, fontSize:14, outline:'none' }} />
+          <button onClick={handleAddCollab}
+            style={{ background:C.bgTertiary, color:C.textPrimary, border:`1.5px solid ${C.borderDefault}`, borderRadius:6, padding:'8px 14px', fontSize:14, fontWeight:600, cursor:'pointer' }}>Add</button>
+        </div>
+
+        <div style={{ marginTop:32 }}>
+          <button onClick={handleCreate} style={{ width:'100%', background:C.interactivePrimary, color:'#fff', border:'none', borderRadius:8, padding:'14px', fontSize:16, fontWeight:600, cursor:'pointer' }}>
+            Add Quick Hit
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── ROUTER ──────────────────────────────────────────────────── */
+function Router() {
+  const { state } = useNav();
+  switch (state.screen) {
+    case 'EpicDetail':   return <EpicDetailScreen epicId={state.params.epicId} />;
+    case 'CreateEpic':   return <CreateEpicScreen />;
+    case 'CreateQuickHit': return <CreateQuickHitScreen />;
+    default:             return <HomeScreen />;
+  }
+}
+
+/* ── APP SHELL ───────────────────────────────────────────────── */
+function App() {
+  const isMobile = window.innerWidth <= 480;
+
+  const phoneStyle = isMobile ? {
+    width: '100%', height: '100%', display: 'flex', flexDirection: 'column'
+  } : {
+    width: 390, height: 780, maxHeight: '90vh',
+    display: 'flex', flexDirection: 'column',
+    borderRadius: 40, overflow: 'hidden',
+    boxShadow: '0 24px 80px rgba(0,0,0,0.25), 0 0 0 8px #1a1a1a, 0 0 0 10px #333',
+    position: 'relative'
+  };
+
+  const wrapStyle = isMobile ? {
+    width: '100vw', height: '100vh', overflow: 'hidden'
+  } : {
+    minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    background: 'linear-gradient(135deg, #4A154B 0%, #611F69 40%, #8A67DA 100%)',
+    padding: '24px 16px'
+  };
+
+  return (
+    <div style={wrapStyle}>
+      {!isMobile && (
+        <div style={{ marginBottom: 24, textAlign: 'center' }}>
+          <div style={{ fontSize: 28, fontWeight: 800, color: '#fff', letterSpacing: -0.5 }}>Task App</div>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.7)', marginTop: 4 }}>Mobile task tracker · design system demo</div>
+        </div>
+      )}
+      <div style={phoneStyle}>
+        <TaskProvider>
+          <NavProvider>
+            <Router />
+          </NavProvider>
+        </TaskProvider>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
